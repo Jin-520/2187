@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2187 Game (Stable & Fixed)</title>
+    <style>
+        body {
+            font-family: 'Clear Sans', 'Helvetica Neue', Arial, sans-serif;
+            background-color: #faf8ef;
+            color: #776e65;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            user-select: none;
+        }
+
+        h1 { font-size: 60px; margin: 10px 0; }
+
+        .header-container {
+            display: flex;
+            justify-content: space-between;
+            width: 500px;
+            margin-bottom: 20px;
+            align-items: center;
+        }
+
+        .score-container {
+            background: #bbada0;
+            padding: 10px 20px;
+            border-radius: 6px;
+            color: white;
+            font-weight: bold;
+            text-align: center;
+            min-width: 80px;
+        }
+
+        .score-label { font-size: 14px; color: #eee4da; }
+        .score-value { font-size: 24px; }
+
+        button {
+            background-color: #8f7a66;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        button:hover { background-color: #9f8b77; }
+
+        #game-board {
+            position: relative;
+            background-color: #bbada0;
+            border-radius: 6px;
+            width: 500px;
+            height: 500px;
+            padding: 10px;
+            box-sizing: border-box;
+            touch-action: none;
+        }
+
+        .grid-cell {
+            position: absolute;
+            background-color: rgba(238, 228, 218, 0.35);
+            border-radius: 3px;
+        }
+
+        .tile {
+            position: absolute;
+            border-radius: 3px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-weight: bold;
+            z-index: 10;
+            color: #f9f6f2;
+        }
+
+        /* 动画特效 */
+        .tile-new {
+            animation: appear 0.2s ease-in;
+        }
+
+        .tile-merged {
+            z-index: 20;
+            animation: pop 0.2s ease-in;
+        }
+
+        @keyframes appear {
+            0% { opacity: 0; transform: scale(0); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+
+        @keyframes pop {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.2); }
+            100% { transform: scale(1); }
+        }
+
+        /* 颜色配置 */
+        .tile-3 { background: #eee4da; color: #776e65; }
+        .tile-9 { background: #ede0c8; color: #776e65; }
+        .tile-27 { background: #f2b179; }
+        .tile-81 { background: #f59563; }
+        .tile-243 { background: #f67c5f; }
+        .tile-729 { background: #f65e3b; }
+        .tile-2187 { background: #edcf72; font-size: 20px; }
+        .tile-super { background: #edcc61; font-size: 16px; }
+
+        #message-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(238, 228, 218, 0.73);
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            border-radius: 6px;
+        }
+
+        #message-text {
+            font-size: 40px;
+            font-weight: bold;
+            margin-bottom: 20px;
+        }
+
+        .controls-hint {
+            margin-top: 20px;
+            font-size: 14px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header-container">
+        <h1>2187</h1>
+        <div style="display:flex; gap:10px;">
+            <div class="score-container">
+                <div class="score-label">SCORE</div>
+                <div class="score-value" id="score">0</div>
+            </div>
+            <button onclick="restartGame()">新游戏</button>
+        </div>
+    </div>
+
+    <div id="game-board">
+        <div id="message-overlay">
+            <div id="message-text">Game Over!</div>
+            <button onclick="restartGame()">再玩一次</button>
+        </div>
+    </div>
+
+    <div class="controls-hint">
+        使用 <strong>WASD</strong> 或 <strong>方向键</strong> 移动方块<br>
+        规则：三个相同的数字合并为一个数值乘3的新数字
+    </div>
+
+<script>
+    const N = 6;
+    const SPAWN_PROBABILITIES = { 3: 0.7, 9: 0.3 };
+    const STORAGE_KEY = "2187_saving_" + N;
+
+    let grid = [];
+    let score = 0;
+    let isGameOver = false;
+    let isAnimating = false;
+
+    window.onload = function() {
+        initGridUI();
+        loadGame();
+        document.addEventListener('keydown', handleInput);
+        
+        // 移动端滑动支持
+        let touchStartX = 0, touchStartY = 0;
+        const board = document.getElementById('game-board');
+        board.addEventListener('touchstart', e => {
+            touchStartX = e.changedTouches[0].screenX;
+            touchStartY = e.changedTouches[0].screenY;
+        }, {passive: false});
+
+        board.addEventListener('touchend', e => {
+            let dx = e.changedTouches[0].screenX - touchStartX;
+            let dy = e.changedTouches[0].screenY - touchStartY;
+            if (Math.abs(dx) > Math.abs(dy)) {
+                if (Math.abs(dx) > 30) move(dx > 0 ? 'right' : 'left');
+            } else {
+                if (Math.abs(dy) > 30) move(dy > 0 ? 'down' : 'up');
+            }
+        }, {passive: false});
+    };
+
+    let tileSize = 0, gap = 10, padding = 10;
+
+    function initGridUI() {
+        const board = document.getElementById('game-board');
+        Array.from(board.children).forEach(child => {
+            if (child.id !== 'message-overlay') board.removeChild(child);
+        });
+
+        for (let i = 0; i < N * N; i++) {
+            const cell = document.createElement('div');
+            cell.className = 'grid-cell';
+            board.appendChild(cell);
+        }
+        updateTileSize();
+        window.addEventListener('resize', updateTileSize);
+    }
+
+    function updateTileSize() {
+        const board = document.getElementById('game-board');
+        tileSize = (board.clientWidth - 2 * padding - (N - 1) * gap) / N;
+        
+        const cells = document.querySelectorAll('.grid-cell');
+        cells.forEach((cell, index) => {
+            const r = Math.floor(index / N);
+            const c = index % N;
+            cell.style.width = tileSize + 'px';
+            cell.style.height = tileSize + 'px';
+            cell.style.left = (padding + c * (tileSize + gap)) + 'px';
+            cell.style.top = (padding + r * (tileSize + gap)) + 'px';
+        });
+    }
+
+    function getTilePos(r, c) {
+        return {
+            left: padding + c * (tileSize + gap),
+            top: padding + r * (tileSize + gap)
+        };
+    }
+
+    function createEmptyGrid() {
+        return Array.from({ length: N }, () => Array(N).fill(0));
+    }
+
+    // --- 核心逻辑：精确追踪合并位置 ---
+    function mergeLine(line) {
+        let nonZero = line.filter(val => val !== 0);
+        let result = [];
+        let flags = [];
+        let mergedFlags = []; // 记录每个结果是否由合并产生
+
+        for (let val of nonZero) {
+            if (result.length >= 2 && 
+                val === result[result.length - 1] && 
+                result[result.length - 1] === result[result.length - 2] && 
+                !flags[flags.length - 1] && 
+                !flags[flags.length - 2]) {
+                
+                result.pop(); result.pop();
+                flags.pop(); flags.pop();
+                mergedFlags.pop(); mergedFlags.pop();
+                
+                result.push(val * 3);
+                flags.push(true);
+                mergedFlags.push(true); // 标记为合并
+            } else {
+                result.push(val);
+                flags.push(false);
+                mergedFlags.push(false);
+            }
+        }
+
+        while (result.length < N) {
+            result.push(0);
+            mergedFlags.push(false);
+        }
+        return { values: result, merged: mergedFlags };
+    }
+
+    function move(direction) {
+        if (isGameOver || isAnimating) return;
+
+        let oldGridStr = JSON.stringify(grid);
+        let tempGrid = JSON.parse(JSON.stringify(grid));
+        let mergedCells = new Set(); // 记录发生合并的坐标 "r,c"
+
+        if (direction === 'left') {
+            for (let i = 0; i < N; i++) {
+                let { values, merged } = mergeLine(tempGrid[i]);
+                for(let c=0; c<N; c++) if(merged[c]) mergedCells.add(`${i},${c}`);
+                tempGrid[i] = values;
+            }
+        } 
+        else if (direction === 'right') {
+            for (let i = 0; i < N; i++) {
+                let row = tempGrid[i].slice().reverse();
+                let { values, merged } = mergeLine(row);
+                values.reverse();
+                merged.reverse(); // 关键：反转 merged 数组以匹配原始列索引
+                for(let c=0; c<N; c++) if(merged[c]) mergedCells.add(`${i},${c}`);
+                tempGrid[i] = values;
+            }
+        } 
+        else if (direction === 'up') {
+            for (let j = 0; j < N; j++) {
+                let col = [];
+                for (let i = 0; i < N; i++) col.push(tempGrid[i][j]);
+                let { values, merged } = mergeLine(col);
+                for(let i=0; i<N; i++) {
+                    if(merged[i]) mergedCells.add(`${i},${j}`);
+                    tempGrid[i][j] = values[i];
+                }
+            }
+        } 
+        else if (direction === 'down') {
+            for (let j = 0; j < N; j++) {
+                let col = [];
+                for (let i = N-1; i >= 0; i--) col.push(tempGrid[i][j]);
+                let { values, merged } = mergeLine(col);
+                values.reverse();
+                merged.reverse(); // 关键：反转 merged 数组
+                for(let i=0; i<N; i++) {
+                    if(merged[i]) mergedCells.add(`${i},${j}`);
+                    tempGrid[i][j] = values[i];
+                }
+            }
+        }
+
+        if (JSON.stringify(tempGrid) === oldGridStr) return;
+
+        isAnimating = true;
+        grid = tempGrid;
+        
+        // 生成新数字
+        let newSpawnCell = spawnNumber(grid);
+        
+        // 渲染并触发动画
+        renderBoard(mergedCells, newSpawnCell);
+        updateScore();
+        
+        // 动画结束后解锁
+        setTimeout(() => {
+            isAnimating = false;
+            if (checkGameOver(grid)) {
+                isGameOver = true;
+                document.getElementById('message-overlay').style.display = 'flex';
+                localStorage.removeItem(STORAGE_KEY);
+            }
+        }, 200);
+    }
+
+    function spawnNumber(a) {
+        let emptyCells = [];
+        for(let i=0; i<N; i++) {
+            for(let j=0; j<N; j++) {
+                if(a[i][j] === 0) emptyCells.push({r:i, c:j});
+            }
+        }
+        if (emptyCells.length === 0) return null;
+
+        let k = Math.random();
+        let numToSpawn = 3;
+        let sumProb = Object.values(SPAWN_PROBABILITIES).reduce((acc, val) => acc + val, 0);
+        for (let key in SPAWN_PROBABILITIES) {
+            k -= SPAWN_PROBABILITIES[key] / sumProb;
+            if (k < 0) { numToSpawn = parseInt(key); break; }
+        }
+
+        let randomCell = emptyCells[Math.floor(Math.random() * emptyCells.length)];
+        a[randomCell.r][randomCell.c] = numToSpawn;
+        saveGame();
+        return `${randomCell.r},${randomCell.c}`;
+    }
+
+    function handleInput(e) {
+        if (isGameOver || isAnimating) return;
+        let key = e.key.toLowerCase();
+        if (key === 'a' || key === 'arrowleft') move('left');
+        else if (key === 'd' || key === 'arrowright') move('right');
+        else if (key === 'w' || key === 'arrowup') move('up');
+        else if (key === 's' || key === 'arrowdown') move('down');
+    }
+
+    function checkGameOver(a) {
+        for(let i=0; i<N; i++) {
+            for(let j=0; j<N; j++) {
+                if(a[i][j] === 0) return false;
+            }
+        }
+        for (let x = 0; x < N; x++) {
+            for (let y = 0; y < N; y++) {
+                let val = a[x][y];
+                if (y < N - 2 && val === a[x][y+1] && val === a[x][y+2]) return false;
+                if (x < N - 2 && val === a[x+1][y] && val === a[x+2][y]) return false;
+            }
+        }
+        return true;
+    }
+
+    // --- 稳定版渲染系统 ---
+    function renderBoard(mergedCells = new Set(), newSpawnCell = null) {
+        const board = document.getElementById('game-board');
+        
+        // 清除所有旧方块
+        const oldTiles = document.querySelectorAll('.tile');
+        oldTiles.forEach(t => t.remove());
+
+        // 根据最新 grid 重建所有方块
+        for (let i = 0; i < N; i++) {
+            for (let j = 0; j < N; j++) {
+                let val = grid[i][j];
+                if (val !== 0) {
+                    const tile = document.createElement('div');
+                    tile.classList.add('tile');
+                    
+                    if (val <= 2187) tile.classList.add(`tile-${val}`);
+                    else tile.classList.add('tile-super');
+                    
+                    tile.textContent = val;
+                    const pos = getTilePos(i, j);
+                    tile.style.left = pos.left + 'px';
+                    tile.style.top = pos.top + 'px';
+                    tile.style.width = tileSize + 'px';
+                    tile.style.height = tileSize + 'px';
+                    
+                    let key = `${i},${j}`;
+                    if (mergedCells.has(key)) {
+                        tile.classList.add('tile-merged');
+                    } else if (key === newSpawnCell) {
+                        tile.classList.add('tile-new');
+                    }
+                    
+                    board.appendChild(tile);
+                }
+            }
+        }
+    }
+
+    function updateScore() {
+        let sum = 0;
+        for(let row of grid) for(let val of row) sum += val;
+        document.getElementById('score').textContent = sum;
+    }
+
+    function saveGame() {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ grid, timestamp: Date.now() }));
+    }
+
+    function loadGame() {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+            try {
+                grid = JSON.parse(saved).grid;
+                isGameOver = false;
+                document.getElementById('message-overlay').style.display = 'none';
+            } catch (e) {
+                startNewGame();
+            }
+        } else {
+            startNewGame();
+        }
+        renderBoard();
+        updateScore();
+    }
+
+    function startNewGame() {
+        grid = createEmptyGrid();
+        spawnNumber(grid);
+        spawnNumber(grid);
+        isGameOver = false;
+        document.getElementById('message-overlay').style.display = 'none';
+        saveGame();
+    }
+
+    function restartGame() {
+        if(confirm("确定要开始新游戏吗？")) {
+            localStorage.removeItem(STORAGE_KEY);
+            startNewGame();
+            renderBoard();
+            updateScore();
+        }
+    }
+</script>
+</body>
+</html>
