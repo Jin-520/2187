@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数字合成游戏 - 3合1</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        h1 {
+            color: white;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .info {
+            color: white;
+            margin-bottom: 20px;
+            font-size: 18px;
+        }
+
+        .game-container {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 20px;
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 10px;
+            background: rgba(255, 255, 255, 0.2);
+            padding: 15px;
+            border-radius: 10px;
+        }
+
+        .cell {
+            width: 70px;
+            height: 70px;
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .cell:hover {
+            transform: scale(1.05);
+        }
+
+        .cell.selected {
+            background: rgba(255, 215, 0, 0.8);
+            transform: scale(1.1);
+            box-shadow: 0 0 15px rgba(255, 215, 0, 0.6);
+        }
+
+        .cell[data-value="3"] { background: #ffadad; }
+        .cell[data-value="9"] { background: #ffd6a5; }
+        .cell[data-value="27"] { background: #fdffb6; }
+        .cell[data-value="81"] { background: #caffbf; }
+        .cell[data-value="243"] { background: #9bf6ff; }
+        .cell[data-value="729"] { background: #a0c4ff; }
+        .cell[data-value="2187"] { background: #bdb2ff; }
+
+        .controls {
+            margin-top: 20px;
+            display: flex;
+            gap: 15px;
+        }
+
+        button {
+            padding: 12px 30px;
+            font-size: 16px;
+            border: none;
+            border-radius: 8px;
+            background: white;
+            color: #667eea;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: bold;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+
+        .message {
+            color: white;
+            margin-top: 15px;
+            font-size: 16px;
+            min-height: 24px;
+        }
+
+        .win {
+            animation: pulse 0.5s ease-in-out infinite alternate;
+        }
+
+        @keyframes pulse {
+            from { transform: scale(1); }
+            to { transform: scale(1.05); }
+        }
+    </style>
+</head>
+<body>
+    <h1>🎮 数字合成游戏</h1>
+    <div class="info">规则：选择3个相同的数字合成下一个等级 (3→9→27→81→243→729→2187)</div>
+    
+    <div class="game-container">
+        <div class="grid" id="grid"></div>
+    </div>
+
+    <div class="controls">
+        <button onclick="newGame()">新游戏</button>
+        <button onclick="addRandomTile()">添加随机数字</button>
+    </div>
+
+    <div class="message" id="message"></div>
+
+    <script>
+        const GRID_SIZE = 6;
+        const TARGET_VALUE = 2187;
+        let grid = [];
+        let selectedCells = [];
+
+        function initGrid() {
+            grid = [];
+            for (let i = 0; i < GRID_SIZE * GRID_SIZE; i++) {
+                grid.push(0);
+            }
+        }
+
+        function addRandomTile() {
+            const emptyCells = [];
+            for (let i = 0; i < grid.length; i++) {
+                if (grid[i] === 0) {
+                    emptyCells.push(i);
+                }
+            }
+
+            if (emptyCells.length > 0) {
+                const randomIndex = emptyCells[Math.floor(Math.random() * emptyCells.length)];
+                grid[randomIndex] = 3;
+                renderGrid();
+                showMessage('');
+            } else {
+                showMessage('棋盘已满！请合成数字腾出空间。');
+            }
+        }
+
+        function renderGrid() {
+            const gridElement = document.getElementById('grid');
+            gridElement.innerHTML = '';
+
+            for (let i = 0; i < grid.length; i++) {
+                const cell = document.createElement('div');
+                cell.className = 'cell';
+                
+                if (selectedCells.includes(i)) {
+                    cell.classList.add('selected');
+                }
+
+                if (grid[i] !== 0) {
+                    cell.textContent = grid[i];
+                    cell.setAttribute('data-value', grid[i]);
+                }
+
+                cell.onclick = () => handleCellClick(i);
+                gridElement.appendChild(cell);
+            }
+        }
+
+        function handleCellClick(index) {
+            if (grid[index] === 0) return;
+
+            const selectedIndex = selectedCells.indexOf(index);
+            
+            if (selectedIndex > -1) {
+                // 取消选择
+                selectedCells.splice(selectedIndex, 1);
+            } else {
+                // 选择新格子
+                if (selectedCells.length < 3) {
+                    // 检查是否与已选择的数字相同
+                    if (selectedCells.length === 0 || 
+                        grid[selectedCells[0]] === grid[index]) {
+                        selectedCells.push(index);
+                    } else {
+                        showMessage('只能选择相同数字的格子！');
+                        return;
+                    }
+                } else {
+                    showMessage('最多只能选择3个格子！');
+                    return;
+                }
+            }
+
+            renderGrid();
+
+            // 检查是否可以合成
+            if (selectedCells.length === 3) {
+                setTimeout(() => tryMerge(), 300);
+            }
+        }
+
+        function tryMerge() {
+            if (selectedCells.length !== 3) return;
+
+            const values = selectedCells.map(i => grid[i]);
+            
+            if (values[0] === values[1] && values[1] === values[2]) {
+                // 可以合成
+                const newValue = values[0] * 3;
+                
+                // 清空选中的格子
+                selectedCells.forEach(i => grid[i] = 0);
+                
+                // 在最后一个选中的位置放置新数字
+                grid[selectedCells[2]] = newValue;
+                
+                selectedCells = [];
+                renderGrid();
+
+                if (newValue === TARGET_VALUE) {
+                    showMessage('🎉 恭喜你合成了 ' + TARGET_VALUE + '！游戏胜利！', true);
+                } else {
+                    showMessage('合成成功！得到 ' + newValue);
+                }
+
+                // 自动添加一个新数字
+                setTimeout(() => addRandomTile(), 500);
+            } else {
+                showMessage('请选择3个相同的数字！');
+                setTimeout(() => {
+                    selectedCells = [];
+                    renderGrid();
+                }, 1000);
+            }
+        }
+
+        function showMessage(text, isWin = false) {
+            const messageElement = document.getElementById('message');
+            messageElement.textContent = text;
+            if (isWin) {
+                messageElement.classList.add('win');
+            } else {
+                messageElement.classList.remove('win');
+            }
+        }
+
+        function newGame() {
+            initGrid();
+            selectedCells = [];
+            showMessage('');
+            
+            // 初始添加几个数字
+            for (let i = 0; i < 8; i++) {
+                addRandomTile();
+            }
+            
+            renderGrid();
+            showMessage('游戏开始！选择3个相同的数字进行合成。');
+        }
+
+        // 初始化游戏
+        newGame();
+    </script>
+</body>
+</html>
